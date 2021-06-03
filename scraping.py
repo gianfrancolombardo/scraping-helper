@@ -28,9 +28,14 @@ class Scraping:
             self.init_proxies()
             self.save_data()
 
-        self.data = json.load(open(os.path.abspath(self.data_file) , 'r'))
-        
-
+        try:
+            self.data = json.load(open(os.path.abspath(self.data_file) , 'r'))
+        except:
+            self.init_helper()
+            self.init_user_agents()
+            self.init_proxies()
+            self.save_data()
+            
     # Initial helper data
     def init_helper(self):
         data = {}
