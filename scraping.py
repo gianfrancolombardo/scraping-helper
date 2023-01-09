@@ -13,28 +13,39 @@ class Scraping:
                 pubproxy = 'http://pubproxy.com/api/proxy?port=8080,3128,3129,51200,8811,8089,33746,8880,32302,80,8118,8081',
                 proxyscrape = 'https://api.proxyscrape.com/?request=getproxies&proxytype=http&timeout=10000&country=all&ssl=all&anonymity=elite' ,
                 free_p_l = 'https://free-proxy-list.net/',
+                proxy_geonode = 'https://proxylist.geonode.com/api/proxy-list?limit=100&page=1&sort_by=lastChecked&sort_type=desc',
                 show_logs = False):
 
         self.data_file = data_file
         self.pubproxy = pubproxy
         self.proxyscrape = proxyscrape
         self.free_p_l = free_p_l
+        self.proxy_geonode = proxy_geonode
         self.show_logs = show_logs
         self.init_logger()
 
+        
+
         if not os.path.exists(data_file):
-            self.init_helper()
-            self.init_user_agents()
-            self.init_proxies()
-            self.save_data()
+            self.init_all()
+        else:
+            # Check if the file is older than 1 day (to refresh proxies)
+            file_time = os.path.getmtime(data_file)
+            now = time.time()
+            if (now - file_time) > 86400:
+                os.remove(data_file)
+                self.init_all()
 
         try:
             self.data = json.load(open(os.path.abspath(self.data_file) , 'r'))
         except:
-            self.init_helper()
-            self.init_user_agents()
-            self.init_proxies()
-            self.save_data()
+            self.init_all()
+
+    def init_all(self):
+        self.init_helper()
+        self.init_user_agents()
+        self.init_proxies()
+        self.save_data()
             
     # Initial helper data
     def init_helper(self):
@@ -89,7 +100,11 @@ class Scraping:
 
     # Scrap proxies and filter duplicated proxies
     def init_proxies(self):
-        self.data['proxies'] = self.get_free_p_l()
+        self.data['proxies'] = self.get_pubproxy()
+        self.data['proxies'] += self.get_proxyscrape()
+        self.data['proxies'] += self.get_free_p_l()
+        self.data['proxies'] += self.get_geonode()
+        
         self.data['proxies'] = list(filter(None , self.data['proxies']))
     
     # Definign Logger for this class
@@ -117,7 +132,15 @@ class Scraping:
 
     # Function to return Proxy from list of working Proxies
     def return_proxy(self):
-        return self.data['proxies'][random.randint(0,len(self.data['proxies'])-1)]
+        try:
+            if len(self.data['working_proxies'])>=5:
+                return self.data['working_proxies'][random.randint(0,len(self.data['working_proxies'])-1)]
+            return self.data['proxies'][random.randint(0,len(self.data['proxies'])-1)]
+        except:
+            # Return my rxternal IP
+            return requests.get('https://api.ipify.org').content.decode('utf8')
+
+
     
     # Get proxies from Pubproxy
     def get_pubproxy(self , limit = 20):
@@ -165,17 +188,43 @@ class Scraping:
                 self.log(logging.ERROR, 'Something went Wrong in Extracting from free-proxy-list .. -> {}'.format(E))
                 return '0'
 
+    # Get proxies from getnode
+    def get_geonode(self):
+        proxies = []
+        try:
+            response = requests.get(self.proxy_geonode)
+            if response.status_code == requests.codes.ok:
+                data = response.json()['data']
+                for item in data:
+                    proxies.append(item['ip'] + ':' + item['port'])
+                self.log(logging.INFO, 'Called {} number of Proxies from GeoNode'.format(len(proxies)))
+            else:
+                self.log(logging.ERROR, 'Status Code Mismatch From GeoNode .. ')
+        except Exception as E:
+            self.log(logging.ERROR, 'Something went Wrong in Extracting from GeoNode .. -> {}'.format(E))
+        return proxies
+
     # Update list of working proxies
     def update_proxies(self, proxy, ok):
         if ok:
             self.data['working_proxies'].append(proxy)
         else:
-            self.data['proxies'].remove(proxy)
+            try:
+                self.data['proxies'].remove(proxy)
+            except:
+                pass
+            try:
+                self.data['working_proxies'].remove(proxy)
+            except:
+                pass
 
     # To save json data in disk
     def save_data(self):
-        with open(self.data_file, 'w') as outfile:
-            json.dump(self.data, outfile, indent=4)
+        try:
+            with open(self.data_file, 'w') as outfile:
+                json.dump(self.data, outfile, indent=4)
+        except Exception as e:
+            print("save_data", e)
 
     # Add log line
     def log(self, level, message):
@@ -192,7 +241,7 @@ class Scraping:
                 send_proxy = self.return_proxy()
                 send_header = self.return_header()    
 
-                response = requests.get(url, headers = send_header, proxies = {'http':send_proxy,'https':send_proxy}, timeout = 50)
+                response = requests.get(url, headers = send_header, proxies = {'http':send_proxy,'https':send_proxy}, timeout = 60)
 
                 if response.status_code == requests.codes.ok:
                     good_proxy = True
