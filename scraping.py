@@ -207,7 +207,8 @@ class Scraping:
     # Update list of working proxies
     def update_proxies(self, proxy, ok):
         if ok:
-            self.data['working_proxies'].append(proxy)
+            if proxy not in self.data['working_proxies']:
+                self.data['working_proxies'].append(proxy)
         else:
             try:
                 self.data['proxies'].remove(proxy)
